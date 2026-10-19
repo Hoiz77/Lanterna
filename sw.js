@@ -1,0 +1,30 @@
+/* Lanterna offline helper: keeps the app and its fonts on the device so it opens without internet.
+   Your own videos live in the app's storage, not here. */
+const CACHE = 'lanterna-v2';
+const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  const keep = res => { if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; };
+  if (url.origin === self.location.origin) {
+    // the app itself: fresh when online, saved copy when offline
+    e.respondWith(fetch(req).then(keep).catch(() => caches.match(req).then(m => m || caches.match('index.html'))));
+  } else if (/(^|\.)fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) {
+    // fonts rarely change: saved copy first
+    e.respondWith(caches.match(req).then(m => m || fetch(req).then(keep)));
+  }
+});
